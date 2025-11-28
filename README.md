@@ -108,12 +108,7 @@ LLM-Analysis-TDS-Project-2/
 - [uv](https://github.com/astral-sh/uv) package manager (recommended) or pip
 - Git
 
-### Step 1: Clone the Repository
-
-```bash
-git clone https://github.com/saivijayragav/LLM-Analysis-TDS-Project-2.git
-cd LLM-Analysis-TDS-Project-2
-```
+### Step 1: Load the Repository
 
 ### Step 2: Install Dependencies
 
