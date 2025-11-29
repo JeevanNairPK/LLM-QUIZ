@@ -18,7 +18,7 @@ load_dotenv()
 EMAIL = os.getenv("EMAIL")
 SECRET = os.getenv("SECRET")
 
-RECURSION_LIMIT = 100  # Set reasonable limit for steps
+RECURSION_LIMIT = 5000  # Set reasonable limit for steps
 MAX_TOKENS = 60000
 
 # -------------------------------------------------
