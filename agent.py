@@ -18,7 +18,7 @@ load_dotenv()
 EMAIL = os.getenv("EMAIL")
 SECRET = os.getenv("SECRET")
 
-RECURSION_LIMIT = 5000
+RECURSION_LIMIT = 100
 MAX_TOKENS = 60000
 
 
@@ -39,9 +39,9 @@ TOOLS = [
 # LLM INIT
 # -------------------------------------------------
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=4 / 60,
-    check_every_n_seconds=1,
-    max_bucket_size=4
+    requests_per_second=2,
+    check_every_n_seconds=0.1,
+    max_bucket_size=10
 )
 
 llm = init_chat_model(
