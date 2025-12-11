@@ -19,7 +19,7 @@ EMAIL = os.getenv("EMAIL")
 SECRET = os.getenv("SECRET")
 
 RECURSION_LIMIT = 5000  # Set reasonable limit for steps
-MAX_TOKENS = 15000
+MAX_TOKENS = 12000
 
 # -------------------------------------------------
 # STATE
@@ -37,9 +37,9 @@ TOOLS = [
 # -------------------------------------------------
 # You have 150 RPM. We set this to ~120 RPM (2/sec) to be safe but fast.
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=1,  
+    requests_per_second=0.75,  
     check_every_n_seconds=0.1,
-    max_bucket_size=2
+    max_bucket_size=1
 )
 
 llm = init_chat_model(
