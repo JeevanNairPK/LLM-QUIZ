@@ -86,8 +86,9 @@ CRITICAL INSTRUCTIONS:
            count += 1
 
    # 3. Calculate Offset
-   email = "{EMAIL}"
+   email = {EMAIL}
    offset = len(email) % 2
 
    # 4. Final Answer
    print(count + offset)
+    """
