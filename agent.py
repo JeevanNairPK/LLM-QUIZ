@@ -37,7 +37,7 @@ TOOLS = [
 # -------------------------------------------------
 # We set this to 0.2 req/s (~12 RPM) to stay safely under the 14 RPM limit.
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=0.2,   # SLOW: 1 request every 5 seconds
+    requests_per_second=0.5,   # SLOW: 1 request every 2 seconds
     check_every_n_seconds=0.1,
     max_bucket_size=1          # No bursts allowed
 )
