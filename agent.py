@@ -19,7 +19,7 @@ EMAIL = os.getenv("EMAIL")
 SECRET = os.getenv("SECRET")
 
 RECURSION_LIMIT = 5000 
-MAX_TOKENS = 25000 # Kept moderate to prevent Token Quota crashes
+MAX_TOKENS = 40000 # Kept moderate to prevent Token Quota crashes
 
 # -------------------------------------------------
 # STATE
