@@ -69,9 +69,13 @@ Rules:
     email = {EMAIL}
     secret = {SECRET}
 
-CRITICAL:
-- If a task takes too long, the system will instruct you to submit a WRONG answer. Do this immediately to skip to the next task.
-- For GitHub API urls, use `run_code` with `requests`, NOT `get_rendered_html`.
+CRITICAL INSTRUCTIONS:
+1. **GitHub Task (project2-gh-tree):** You MUST NOT use `get_rendered_html`. You MUST uses the `run_code` tool.
+   - Write a Python script to fetch the JSON from the API: `requests.get(api_url).json()`.
+   - Count the files RECURSIVELY in the JSON list.
+   - Calculate `count + (len(email) % 2)`.
+   - Submit the integer result.
+2. **Timeouts:** If any OTHER task takes > 60s, submit "skip" to proceed.
 """
 
 # -------------------------------------------------
