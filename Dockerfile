@@ -10,8 +10,6 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 libpango-1.0-0 libcairo2 \
     # Tesseract OCR engine
     tesseract-ocr \
-    # FFmpeg for audio processing (pydub)
-    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Install Playwright + Chromium ---
@@ -29,7 +27,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=utf-8
 
 # --- Install project dependencies using uv ---
-RUN uv sync --frozen
+RUN uv sync
 
 # HuggingFace Spaces exposes port 7860
 EXPOSE 7860
