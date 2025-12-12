@@ -18,8 +18,8 @@ load_dotenv()
 EMAIL = os.getenv("EMAIL")
 SECRET = os.getenv("SECRET")
 
-RECURSION_LIMIT = 5000  # Set reasonable limit for steps
-MAX_TOKENS = 100000
+RECURSION_LIMIT = 5000 
+MAX_TOKENS = 25000 # Kept moderate to prevent Token Quota crashes
 
 # -------------------------------------------------
 # STATE
@@ -33,23 +33,23 @@ TOOLS = [
 ]
 
 # -------------------------------------------------
-# LLM INIT (HIGH SPEED CONFIG)
+# LLM INIT (SAFE MODE)
 # -------------------------------------------------
-# You have 150 RPM. We set this to ~120 RPM (2/sec) to be safe but fast.
+# We set this to 0.2 req/s (~12 RPM) to stay safely under the 14 RPM limit.
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=1,  
+    requests_per_second=0.2,   # SLOW: 1 request every 5 seconds
     check_every_n_seconds=0.1,
-    max_bucket_size=1
+    max_bucket_size=1          # No bursts allowed
 )
 
 llm = init_chat_model(
     model_provider="google_genai",
-    model="gemini-2.5-flash", 
+    model="gemini-2.5-pro",    # Back to Pro for Audio/Image capability
     rate_limiter=rate_limiter
 ).bind_tools(TOOLS)
 
 # -------------------------------------------------
-# SYSTEM PROMPT (LOGIC FIXED)
+# SYSTEM PROMPT (OPTIMIZED)
 # -------------------------------------------------
 SYSTEM_PROMPT = f"""
 You are an autonomous quiz-solving agent.
@@ -70,15 +70,14 @@ Rules:
     email = {EMAIL}
     secret = {SECRET}
 
-CRITICAL INSTRUCTIONS FOR SPECIFIC TASKS:
-- **File Counting:** If asked to count files (e.g., "count .md files"), YOU MUST write Python code to list files **RECURSIVELY** (look in all subfolders). Do NOT just list the root directory.
-  - Example: `sum(len(files) for _, _, files in os.walk('.'))`
-- **Date Parsing:** In CSV/JSON tasks, pay close attention to date formats. If the JSON format is wrong, try a different date format (ISO 8601 vs others).
-- **Email Math:** If asked to calculate `len(email) % 2`, calculate it explicitly in Python.
+CRITICAL INSTRUCTIONS:
+- **GitHub/JSON Tasks:** If the URL looks like an API (ends in .json) or is a GitHub Tree, **DO NOT use `get_rendered_html`**. Instead, use `run_code` to fetch it using `requests.get(url).json()`. This is much faster and saves memory.
+- **File Counting:** When counting files in a list, write Python code to count them programmatically.
+- **Audio:** Use the `transcribe_audio` tool.
 """
 
 # -------------------------------------------------
-# NEW NODE: HANDLE MALFORMED JSON
+# NODES & GRAPH
 # -------------------------------------------------
 def handle_malformed_node(state: AgentState):
     print("--- DETECTED MALFORMED JSON. ASKING AGENT TO RETRY ---")
@@ -86,16 +85,12 @@ def handle_malformed_node(state: AgentState):
         "messages": [
             {
                 "role": "user", 
-                "content": "SYSTEM ERROR: Your last tool call was Malformed (Invalid JSON). Please rewrite the code and try again. Ensure you escape newlines and quotes correctly inside the JSON."
+                "content": "SYSTEM ERROR: Your last tool call was Malformed (Invalid JSON). Please rewrite the code and try again."
             }
         ]
     }
 
-# -------------------------------------------------
-# AGENT NODE
-# -------------------------------------------------
 def agent_node(state: AgentState):
-    # --- TIME HANDLING ---
     cur_time = time.time()
     cur_url = os.getenv("url")
     prev_time = url_time.get(cur_url) 
@@ -104,14 +99,13 @@ def agent_node(state: AgentState):
     if prev_time is not None:
         prev_time = float(prev_time)
         diff = cur_time - prev_time
-        # Increased timeout to 300s to give Pro model breathing room
-        if diff >= 300 or (offset != "0" and (cur_time - float(offset)) > 200):
-            print(f"Timeout exceeded ({diff}s) — instructing LLM to purposely submit wrong answer.")
-            fail_instruction = "You have exceeded the time limit. Immediately submit a WRONG answer to skip this step."
+        # Increased timeout for the slower rate limit
+        if diff >= 400 or (offset != "0" and (cur_time - float(offset)) > 300):
+            print(f"Timeout exceeded ({diff}s).")
+            fail_instruction = "Timeout exceeded. Submit a placeholder answer to skip."
             fail_msg = HumanMessage(content=fail_instruction)
             result = llm.invoke(state["messages"] + [fail_msg])
             return {"messages": [result]}
-    # ---------------------
 
     trimmed_messages = trim_messages(
         messages=state["messages"],
@@ -122,7 +116,6 @@ def agent_node(state: AgentState):
         token_counter=llm, 
     )
     
-    # Context Safety Check
     has_human = any(msg.type == "human" for msg in trimmed_messages)
     if not has_human:
         print("WARNING: Context was trimmed too far. Injecting state reminder.")
@@ -134,68 +127,30 @@ def agent_node(state: AgentState):
     result = llm.invoke(trimmed_messages)
     return {"messages": [result]}
 
-# -------------------------------------------------
-# ROUTE LOGIC
-# -------------------------------------------------
 def route(state):
     last = state["messages"][-1]
-    
-    if "finish_reason" in last.response_metadata:
-        if last.response_metadata["finish_reason"] == "MALFORMED_FUNCTION_CALL":
-            return "handle_malformed"
-
-    tool_calls = getattr(last, "tool_calls", None)
-    if tool_calls:
+    if "finish_reason" in last.response_metadata and last.response_metadata["finish_reason"] == "MALFORMED_FUNCTION_CALL":
+        return "handle_malformed"
+    if getattr(last, "tool_calls", None):
         print("Route → tools")
         return "tools"
-
     content = getattr(last, "content", None)
     if isinstance(content, str) and content.strip() == "END":
         return END
-    
-    # Handle Google's list-based content format
-    if isinstance(content, list) and len(content) > 0 and isinstance(content[0], dict):
-        if content[0].get("text", "").strip() == "END":
-            return END
-
     print("Route → agent")
     return "agent"
 
-# -------------------------------------------------
-# GRAPH
-# -------------------------------------------------
 graph = StateGraph(AgentState)
 graph.add_node("agent", agent_node)
 graph.add_node("tools", ToolNode(TOOLS))
 graph.add_node("handle_malformed", handle_malformed_node)
-
 graph.add_edge(START, "agent")
 graph.add_edge("tools", "agent")
 graph.add_edge("handle_malformed", "agent")
-
-graph.add_conditional_edges(
-    "agent", 
-    route,
-    {
-        "tools": "tools",
-        "agent": "agent",
-        "handle_malformed": "handle_malformed",
-        END: END
-    }
-)
-
+graph.add_conditional_edges("agent", route, {"tools": "tools", "agent": "agent", "handle_malformed": "handle_malformed", END: END})
 app = graph.compile()
 
-# -------------------------------------------------
-# RUNNER
-# -------------------------------------------------
 def run_agent(url: str):
-    initial_messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": url}
-    ]
-    app.invoke(
-        {"messages": initial_messages},
-        config={"recursion_limit": RECURSION_LIMIT}
-    )
+    initial_messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": url}]
+    app.invoke({"messages": initial_messages}, config={"recursion_limit": RECURSION_LIMIT})
     print("Tasks completed successfully!")
