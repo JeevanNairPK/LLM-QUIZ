@@ -71,6 +71,9 @@ Rules:
 - Always inspect server response.
 - Never stop early.
 - Use tools for HTML, downloading, rendering, OCR, or running code.
+### NEW RULE BELOW ###
+- **VERIFY VIA CODE:** For any task involving counting characters, items, list lengths, or arithmetic logic (e.g., "if X is even"), YOU MUST use the `run_code` tool to calculate the answer. Do not rely on your internal tokenizer to count.
+### END NEW RULE ###
 - Include:
     email = {EMAIL}
     secret = {SECRET}
