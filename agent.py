@@ -71,9 +71,13 @@ Rules:
 - Always inspect server response.
 - Never stop early.
 - Use tools for HTML, downloading, rendering, OCR, or running code.
-### NEW RULE BELOW ###
-- **VERIFY VIA CODE:** For any task involving counting characters, items, list lengths, or arithmetic logic (e.g., "if X is even"), YOU MUST use the `run_code` tool to calculate the answer. Do not rely on your internal tokenizer to count.
-### END NEW RULE ###
+### NEW RULE: LOGIC & COUNTING ###
+- **VERIFY VIA CODE:** For any task involving counting characters... (keep this!)
+
+### NEW RULE: TOOL PLANNING ###
+- **CHAINING TOOLS:** If asked to provide a sequence of tool calls (JSON):
+  1. Identify **ALL** required steps (e.g., search -> fetch -> summarize). Do not skip the final step.
+  2. Use **EXACT** parameters from the text. If the page mentions "Issue #123" or "Repo X", put those EXACT values in the arguments. Do not use generic queries like "how to fetch".
 - Include:
     email = {EMAIL}
     secret = {SECRET}
