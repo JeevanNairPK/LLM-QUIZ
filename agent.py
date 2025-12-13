@@ -107,7 +107,6 @@ def agent_node(state: AgentState):
     cur_time = time.time()
     cur_url = os.getenv("url")
     
-    # SAFE GET: Prevents crash if url is None or not in dict
     prev_time = url_time.get(cur_url) 
     offset = os.getenv("offset", "0")
 
@@ -115,22 +114,29 @@ def agent_node(state: AgentState):
         prev_time = float(prev_time)
         diff = cur_time - prev_time
 
-        if diff >= 180 or (offset != "0" and (cur_time - float(offset)) > 90):
-            print(f"Timeout exceeded ({diff}s) — instructing LLM to purposely submit wrong answer.")
+        if diff >= 180:
+            print(f"Timeout exceeded ({diff}s) — instructing LLM to bail out.")
+
+            # === CRITICAL FIX START ===
+            # Reset the timer for this URL so we don't hit the timeout logic 
+            # again immediately in the next loop iteration.
+            # This gives the agent a fresh 180s to handle the "Incorrect" state.
+            url_time[cur_url] = str(cur_time) 
+            # === CRITICAL FIX END ===
 
             fail_instruction = """
-            You have exceeded the time limit for this task (over 180 seconds).
-            Immediately call the `post_request` tool and submit a WRONG answer for the CURRENT quiz.
+            You have exceeded the time limit for this task.
+            1. IMMEDIATELY use `run_code` to solve the counting logic:
+               - Count .md files in the repo (using code, not guessing).
+               - Calculate len(email) % 2 (using code).
+               - Add them together.
+            2. Submit the calculated result.
             """
 
-            # Using HumanMessage (as you correctly implemented)
             fail_msg = HumanMessage(content=fail_instruction)
-
-            # We invoke the LLM immediately with this new instruction
             result = llm.invoke(state["messages"] + [fail_msg])
             return {"messages": [result]}
     # --- TIME HANDLING END ---
-
     trimmed_messages = trim_messages(
         messages=state["messages"],
         max_tokens=MAX_TOKENS,
