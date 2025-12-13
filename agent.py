@@ -85,9 +85,9 @@ CRITICAL INSTRUCTIONS:
    print(count + (len(email) % 2))
 Timeouts: If a task takes > 60 seconds, submit a placeholder/wrong answer to SKIP it. """
 
--------------------------------------------------
-NODES
--------------------------------------------------
+#-------------------------------------------------
+#NODES
+#-------------------------------------------------
 def handle_malformed_node(state: AgentState): print("--- DETECTED MALFORMED JSON. ASKING AGENT TO RETRY ---") return { "messages": [ { "role": "user", "content": "SYSTEM ERROR: Your last tool call was Malformed (Invalid JSON). Please rewrite the code and try again." } ] }
 
 def agent_node(state: AgentState): # --- TIME HANDLING --- cur_time = time.time() cur_url = os.getenv("url") prev_time = url_time.get(cur_url) offset = os.getenv("offset", "0")
@@ -97,7 +97,7 @@ if prev_time is not None:
     diff = cur_time - prev_time
 
     # FAST SKIP: 60 seconds max per question
-    if diff >= 60 or (offset != "0" and (cur_time - float(offset)) > 60):
+    if diff >= 180 or (offset != "0" and (cur_time - float(offset)) > 180):
         print(f"Timeout exceeded ({diff}s) — instructing LLM to SKIP.")
         fail_instruction = "TIMEOUT: Submit a WRONG answer (e.g. 'skip') immediately to proceed to the next question."
         fail_msg = HumanMessage(content=fail_instruction)
@@ -124,9 +124,9 @@ if not has_human:
 print(f"--- INVOKING AGENT (Context: {len(trimmed_messages)} items) ---")
 result = llm.invoke(trimmed_messages)
 return {"messages": [result]}
--------------------------------------------------
-ROUTING
--------------------------------------------------
+#-------------------------------------------------
+#ROUTING
+#-------------------------------------------------
 def route(state): last = state["messages"][-1]
 
 if "finish_reason" in last.response_metadata and last.response_metadata["finish_reason"] == "MALFORMED_FUNCTION_CALL":
@@ -146,9 +146,9 @@ if isinstance(content, list) and len(content) > 0 and isinstance(content[0], dic
 
 print("Route → agent")
 return "agent"
--------------------------------------------------
-GRAPH
--------------------------------------------------
+#-------------------------------------------------
+#GRAPH
+#-------------------------------------------------
 graph = StateGraph(AgentState) graph.add_node("agent", agent_node) graph.add_node("tools", ToolNode(TOOLS)) graph.add_node("handle_malformed", handle_malformed_node)
 
 graph.add_edge(START, "agent") graph.add_edge("tools", "agent") graph.add_edge("handle_malformed", "agent")
@@ -157,7 +157,7 @@ graph.add_conditional_edges( "agent", route, {"tools": "tools", "agent": "agent"
 
 app = graph.compile()
 
--------------------------------------------------
-RUNNER
--------------------------------------------------
+#-------------------------------------------------
+#RUNNER
+#-------------------------------------------------
 def run_agent(url: str): initial_messages = [ {"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": url} ] app.invoke( {"messages": initial_messages}, config={"recursion_limit": RECURSION_LIMIT} ) print("Tasks completed successfully!")
