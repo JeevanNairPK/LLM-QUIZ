@@ -19,7 +19,8 @@ EMAIL = os.getenv("EMAIL")
 SECRET = os.getenv("SECRET")
 
 RECURSION_LIMIT = 5000
-MAX_TOKENS = 50000  # Increased slightly for safety
+MAX_TOKENS = 60000
+
 
 # -------------------------------------------------
 # STATE
@@ -27,32 +28,35 @@ MAX_TOKENS = 50000  # Increased slightly for safety
 class AgentState(TypedDict):
     messages: Annotated[List, add_messages]
 
+
 TOOLS = [
     run_code, get_rendered_html, download_file,
     post_request, add_dependencies, ocr_image_tool, transcribe_audio, encode_image_to_base64
 ]
 
+
 # -------------------------------------------------
-# LLM INIT (SPEED MODE)
+# LLM INIT
 # -------------------------------------------------
-# 0.5 req/s = 30 RPM. Safe for Pro Tier but much faster than before.
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=0.5,
-    check_every_n_seconds=0.1,
-    max_bucket_size=1
+    requests_per_second=0.7,
+    check_every_n_seconds=0.5,
+    max_bucket_size=4
 )
 
 llm = init_chat_model(
     model_provider="google_genai",
-    model="gemini-2.5-pro",  # Pro model for better reasoning
+    model="gemini-2.5-pro",
     rate_limiter=rate_limiter
 ).bind_tools(TOOLS)
+
 
 # -------------------------------------------------
 # SYSTEM PROMPT
 # -------------------------------------------------
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = f"""
 You are an autonomous quiz-solving agent.
+
 Your job is to:
 1. Load each quiz page from the given URL.
 2. Extract instructions, parameters, and submit endpoint.
@@ -61,37 +65,46 @@ Your job is to:
 5. Follow new URLs until none remain, then output END.
 
 Rules:
-- For base64 generation of an image NEVER use your own code, always use the "encode_image_to_base64" tool.
+- For base64 generation of an image NEVER use your own code, always use the "encode_image_to_base64" tool that's provided
 - Never hallucinate URLs or fields.
+- Never shorten endpoints.
 - Always inspect server response.
+- Never stop early.
 - Use tools for HTML, downloading, rendering, OCR, or running code.
 - Include:
     email = {EMAIL}
     secret = {SECRET}
-
-CRITICAL:
-- If a task takes too long, the system will instruct you to submit a WRONG answer. Do this immediately to skip to the next task.
-- For GitHub API urls, use `run_code` with `requests`, NOT `get_rendered_html`.
 """
 
+
 # -------------------------------------------------
-# NODES
+# NEW NODE: HANDLE MALFORMED JSON
 # -------------------------------------------------
 def handle_malformed_node(state: AgentState):
+    """
+    If the LLM generates invalid JSON, this node sends a correction message
+    so the LLM can try again.
+    """
     print("--- DETECTED MALFORMED JSON. ASKING AGENT TO RETRY ---")
     return {
         "messages": [
             {
                 "role": "user", 
-                "content": "SYSTEM ERROR: Your last tool call was Malformed (Invalid JSON). Please rewrite the code and try again."
+                "content": "SYSTEM ERROR: Your last tool call was Malformed (Invalid JSON). Please rewrite the code and try again. Ensure you escape newlines and quotes correctly inside the JSON."
             }
         ]
     }
 
+
+# -------------------------------------------------
+# AGENT NODE
+# -------------------------------------------------
 def agent_node(state: AgentState):
-    # --- TIME HANDLING (AGGRESSIVE SKIP) ---
+    # --- TIME HANDLING START ---
     cur_time = time.time()
     cur_url = os.getenv("url")
+    
+    # SAFE GET: Prevents crash if url is None or not in dict
     prev_time = url_time.get(cur_url) 
     offset = os.getenv("offset", "0")
 
@@ -99,14 +112,21 @@ def agent_node(state: AgentState):
         prev_time = float(prev_time)
         diff = cur_time - prev_time
 
-        # FAST SKIP: If > 60 seconds, force a wrong answer to move on.
-        if diff >= 180 or (offset != "0" and (cur_time - float(offset)) > 180):
-            print(f"Timeout exceeded ({diff}s) — instructing LLM to SKIP.")
-            fail_instruction = "TIMEOUT: Submit a WRONG answer (e.g. 'skip') immediately to proceed to the next question."
+        if diff >= 180 or (offset != "0" and (cur_time - float(offset)) > 90):
+            print(f"Timeout exceeded ({diff}s) — instructing LLM to purposely submit wrong answer.")
+
+            fail_instruction = """
+            You have exceeded the time limit for this task (over 180 seconds).
+            Immediately call the `post_request` tool and submit a WRONG answer for the CURRENT quiz.
+            """
+
+            # Using HumanMessage (as you correctly implemented)
             fail_msg = HumanMessage(content=fail_instruction)
+
+            # We invoke the LLM immediately with this new instruction
             result = llm.invoke(state["messages"] + [fail_msg])
             return {"messages": [result]}
-    # ---------------------
+    # --- TIME HANDLING END ---
 
     trimmed_messages = trim_messages(
         messages=state["messages"],
@@ -117,72 +137,99 @@ def agent_node(state: AgentState):
         token_counter=llm, 
     )
     
-    # Context Safety Check
+    # Better check: Does it have a HumanMessage?
     has_human = any(msg.type == "human" for msg in trimmed_messages)
+    
     if not has_human:
-        print("WARNING: Context trimmed. Injecting reminder.")
+        print("WARNING: Context was trimmed too far. Injecting state reminder.")
+        # We remind the agent of the current URL from the environment
         current_url = os.getenv("url", "Unknown URL")
-        reminder = HumanMessage(content=f"Context cleared. Continue processing URL: {current_url}")
+        reminder = HumanMessage(content=f"Context cleared due to length. Continue processing URL: {current_url}")
+        
+        # We append this to the trimmed list (temporarily for this invoke)
         trimmed_messages.append(reminder)
+    # ----------------------------------------
 
     print(f"--- INVOKING AGENT (Context: {len(trimmed_messages)} items) ---")
+    
     result = llm.invoke(trimmed_messages)
+
     return {"messages": [result]}
 
+
 # -------------------------------------------------
-# ROUTING
+# ROUTE LOGIC (UPDATED FOR MALFORMED CALLS)
 # -------------------------------------------------
 def route(state):
     last = state["messages"][-1]
     
-    if "finish_reason" in last.response_metadata and last.response_metadata["finish_reason"] == "MALFORMED_FUNCTION_CALL":
-        return "handle_malformed"
+    # 1. CHECK FOR MALFORMED FUNCTION CALLS
+    if "finish_reason" in last.response_metadata:
+        if last.response_metadata["finish_reason"] == "MALFORMED_FUNCTION_CALL":
+            return "handle_malformed"
 
-    if getattr(last, "tool_calls", None):
+    # 2. CHECK FOR VALID TOOLS
+    tool_calls = getattr(last, "tool_calls", None)
+    if tool_calls:
         print("Route → tools")
         return "tools"
 
+    # 3. CHECK FOR END
     content = getattr(last, "content", None)
     if isinstance(content, str) and content.strip() == "END":
         return END
-    
-    if isinstance(content, list) and len(content) > 0 and isinstance(content[0], dict):
+
+    if isinstance(content, list) and len(content) and isinstance(content[0], dict):
         if content[0].get("text", "").strip() == "END":
             return END
 
     print("Route → agent")
     return "agent"
 
+
 # -------------------------------------------------
-# GRAPH COMPILE
+# GRAPH
 # -------------------------------------------------
 graph = StateGraph(AgentState)
+
+# Add Nodes
 graph.add_node("agent", agent_node)
 graph.add_node("tools", ToolNode(TOOLS))
-graph.add_node("handle_malformed", handle_malformed_node)
+graph.add_node("handle_malformed", handle_malformed_node) # Add the repair node
 
+# Add Edges
 graph.add_edge(START, "agent")
 graph.add_edge("tools", "agent")
-graph.add_edge("handle_malformed", "agent")
+graph.add_edge("handle_malformed", "agent") # Retry loop
 
+# Conditional Edges
 graph.add_conditional_edges(
     "agent", 
     route,
-    {"tools": "tools", "agent": "agent", "handle_malformed": "handle_malformed", END: END}
+    {
+        "tools": "tools",
+        "agent": "agent",
+        "handle_malformed": "handle_malformed", # Map the new route
+        END: END
+    }
 )
 
 app = graph.compile()
+
 
 # -------------------------------------------------
 # RUNNER
 # -------------------------------------------------
 def run_agent(url: str):
+    # system message is seeded ONCE here
     initial_messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": url}
     ]
+
     app.invoke(
         {"messages": initial_messages},
         config={"recursion_limit": RECURSION_LIMIT}
     )
+
     print("Tasks completed successfully!")
