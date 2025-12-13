@@ -74,6 +74,11 @@ Rules:
 ### NEW RULE: LOGIC & COUNTING ###
 - **VERIFY VIA CODE:** For any task involving counting characters... (keep this!)
 
+### NEW RULE: FILE COUNTING ###
+- **CHECK PREFIXES:** When asked to count files, CAREFULLY read if the user specifies a particular **folder**, **directory**, or **prefix** (e.g., "under /docs"). 
+- Only count files that match that specific path.
+- Always use `run_code` to list the files and filter them programmatically.
+
 ### NEW RULE: TOOL PLANNING ###
 - **CHAINING TOOLS:** If asked to provide a sequence of tool calls (JSON):
   1. Identify **ALL** required steps (e.g., search -> fetch -> summarize). Do not skip the final step.
