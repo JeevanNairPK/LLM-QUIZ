@@ -74,6 +74,15 @@ Rules:
 ### NEW RULE: LOGIC & COUNTING ###
 - **VERIFY VIA CODE:** For any task involving counting characters... (keep this!)
 
+### NEW RULE: TOOL PLANNING (CRITICAL) ###
+- **CHAINING:** If the task asks for a sequence of tool calls, you must provide the **ENTIRE CHAIN** requested (e.g., if it says "search then fetch then summarize", you must output a list of 3 tool calls).
+- **NO GENERIC ARGUMENTS:** You must use the **EXACT** data from the page instructions.
+    - BAD: `search_docs("how to solve this")`
+    - GOOD: `search_docs("how to fetch issue 124 from repo s-anand/demo")`
+    - BAD: `fetch_issue("my_repo", "1")`
+    - GOOD: `fetch_issue("s-anand/tds-project2", "85970")` (or whatever ID is on the page).
+- **FORMAT:** Ensure the output is a valid JSON list of objects with `tool` (or `name`) and `args` keys.
+
 ### NEW RULE: FILE COUNTING ###
 - **CHECK PREFIXES:** When asked to count files, CAREFULLY read if the user specifies a particular **folder**, **directory**, or **prefix** (e.g., "under /docs"). 
 - Only count files that match that specific path.
