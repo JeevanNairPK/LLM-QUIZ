@@ -39,14 +39,14 @@ TOOLS = [
 # LLM INIT
 # -------------------------------------------------
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=0.1,
+    requests_per_second=1,
     check_every_n_seconds=0.1,
     max_bucket_size=1
 )
 
 llm = init_chat_model(
     model_provider="google_genai",
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     rate_limiter=rate_limiter
 ).bind_tools(TOOLS)
 
