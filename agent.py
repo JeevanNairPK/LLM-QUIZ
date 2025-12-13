@@ -39,9 +39,9 @@ TOOLS = [
 # LLM INIT
 # -------------------------------------------------
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=0.7,
-    check_every_n_seconds=0.5,
-    max_bucket_size=4
+    requests_per_second=0.1,
+    check_every_n_seconds=0.1,
+    max_bucket_size=1
 )
 
 llm = init_chat_model(
